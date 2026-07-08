@@ -1,11 +1,11 @@
 // GPS Plus Pro - WolFox
-// ملف واحد بامتداد .mm لتويك GPS بواجهة عائمة بسيطة ومنظمة.
+// واجهة عائمة آمنة لعرض الخريطة وحفظ إحداثيات تجريبية داخل الواجهة فقط.
+// ملاحظة: تم تعطيل أي Hook على CLLocation حتى لا يتم تغيير سلوك النظام أو التطبيقات.
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <CoreLocation/CoreLocation.h>
 #import <MapKit/MapKit.h>
-#import <objc/runtime.h>
 
 #define GPSPLUS_NAME @"WolFox GPS Plus"
 #define GPSPLUS_DEFAULT_LAT 24.7136
@@ -29,6 +29,7 @@
     });
     return s;
 }
+
 - (void)load {
     NSUserDefaults *u = NSUserDefaults.standardUserDefaults;
     self.enabled = [u boolForKey:@"WolFox_GPS_Enabled"];
@@ -36,6 +37,7 @@
     double lon = [u objectForKey:@"WolFox_GPS_Lon"] ? [u doubleForKey:@"WolFox_GPS_Lon"] : GPSPLUS_DEFAULT_LON;
     self.coordinate = CLLocationCoordinate2DMake(lat, lon);
 }
+
 - (void)save {
     NSUserDefaults *u = NSUserDefaults.standardUserDefaults;
     [u setBool:self.enabled forKey:@"WolFox_GPS_Enabled"];
@@ -49,7 +51,10 @@
 @property(nonatomic,strong) UIButton *floatButton;
 @property(nonatomic,strong) UIVisualEffectView *panel;
 @property(nonatomic,strong) MKMapView *mapView;
+@property(nonatomic,strong) UIButton *toggleButton;
+@property(nonatomic,strong) UILabel *coordsLabel;
 + (instancetype)shared;
+- (void)refreshState;
 @end
 
 @implementation GPSPlusOverlay
@@ -61,18 +66,22 @@
     });
     return v;
 }
+
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = UIColor.clearColor;
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self buildUI];
     }
     return self;
 }
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     return hit == self ? nil : hit;
 }
+
 - (void)buildUI {
     CGFloat sw = self.bounds.size.width;
     CGFloat sh = self.bounds.size.height;
@@ -111,63 +120,92 @@
     CLLocationCoordinate2D c = GPSPlusStore.shared.coordinate;
     [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(c, 900, 900) animated:NO];
 
-    UIButton *toggle = [UIButton buttonWithType:UIButtonTypeSystem];
-    toggle.frame = CGRectMake(16, 382, pw - 32, 52);
-    toggle.layer.cornerRadius = 16;
-    toggle.backgroundColor = GPSPlusStore.shared.enabled ? UIColor.systemGreenColor : UIColor.systemBlueColor;
-    [toggle setTitle:(GPSPlusStore.shared.enabled ? @"إيقاف GPS" : @"تشغيل GPS") forState:UIControlStateNormal];
-    [toggle setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    toggle.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
-    [toggle addTarget:self action:@selector(toggleGPS:) forControlEvents:UIControlEventTouchUpInside];
-    [self.panel.contentView addSubview:toggle];
+    self.coordsLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 372, pw - 32, 28)];
+    self.coordsLabel.textColor = UIColor.secondaryLabelColor;
+    self.coordsLabel.textAlignment = NSTextAlignmentCenter;
+    self.coordsLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+    [self.panel.contentView addSubview:self.coordsLabel];
+
+    self.toggleButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.toggleButton.frame = CGRectMake(16, 414, pw - 32, 52);
+    self.toggleButton.layer.cornerRadius = 16;
+    [self.toggleButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    self.toggleButton.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+    [self.toggleButton addTarget:self action:@selector(togglePreviewMode:) forControlEvents:UIControlEventTouchUpInside];
+    [self.panel.contentView addSubview:self.toggleButton];
 
     UIButton *select = [UIButton buttonWithType:UIButtonTypeSystem];
     select.frame = CGRectMake(16, ph - 72, pw - 32, 54);
     select.layer.cornerRadius = 16;
     select.backgroundColor = UIColor.systemBlueColor;
-    [select setTitle:@"📍 اختر هذا الموقع" forState:UIControlStateNormal];
+    [select setTitle:@"📍 حفظ موقع الخريطة" forState:UIControlStateNormal];
     [select setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     select.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
     [select addTarget:self action:@selector(selectLocation) forControlEvents:UIControlEventTouchUpInside];
     [self.panel.contentView addSubview:select];
+
+    [self refreshState];
 }
+
 - (void)togglePanel {
     self.panel.hidden = !self.panel.hidden;
+    [self refreshState];
 }
-- (void)toggleGPS:(UIButton *)button {
+
+- (void)togglePreviewMode:(UIButton *)button {
     GPSPlusStore.shared.enabled = !GPSPlusStore.shared.enabled;
     [GPSPlusStore.shared save];
-    button.backgroundColor = GPSPlusStore.shared.enabled ? UIColor.systemGreenColor : UIColor.systemBlueColor;
-    [button setTitle:(GPSPlusStore.shared.enabled ? @"إيقاف GPS" : @"تشغيل GPS") forState:UIControlStateNormal];
+    [self refreshState];
 }
+
 - (void)selectLocation {
     GPSPlusStore.shared.coordinate = self.mapView.centerCoordinate;
     [GPSPlusStore.shared save];
+    [self refreshState];
+}
+
+- (void)refreshState {
+    BOOL enabled = GPSPlusStore.shared.enabled;
+    CLLocationCoordinate2D c = GPSPlusStore.shared.coordinate;
+    self.toggleButton.backgroundColor = enabled ? UIColor.systemGreenColor : UIColor.systemBlueColor;
+    [self.toggleButton setTitle:(enabled ? @"إيقاف وضع العرض" : @"تشغيل وضع العرض") forState:UIControlStateNormal];
+    self.coordsLabel.text = [NSString stringWithFormat:@"%.6f, %.6f", c.latitude, c.longitude];
 }
 @end
 
-static CLLocationCoordinate2D (*orig_coordinate)(id self, SEL _cmd);
-static CLLocationCoordinate2D hooked_coordinate(id self, SEL _cmd) {
-    if (GPSPlusStore.shared.enabled) {
-        return GPSPlusStore.shared.coordinate;
-    }
-    return orig_coordinate ? orig_coordinate(self, _cmd) : CLLocationCoordinate2DMake(0, 0);
-}
+static UIWindow *GPSPlusActiveWindow(void) {
+    NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
+    for (UIScene *scene in scenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) {
+            continue;
+        }
 
-static void installLocationHook(void) {
-    Class cls = objc_getClass("CLLocation");
-    Method m = class_getInstanceMethod(cls, @selector(coordinate));
-    if (m) {
-        orig_coordinate = (CLLocationCoordinate2D (*)(id, SEL))method_getImplementation(m);
-        method_setImplementation(m, (IMP)hooked_coordinate);
+        if (scene.activationState != UISceneActivationStateForegroundActive &&
+            scene.activationState != UISceneActivationStateForegroundInactive) {
+            continue;
+        }
+
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        UIWindow *fallbackWindow = nil;
+        for (UIWindow *window in windowScene.windows) {
+            if (!fallbackWindow) {
+                fallbackWindow = window;
+            }
+            if (window.isKeyWindow) {
+                return window;
+            }
+        }
+        if (fallbackWindow) {
+            return fallbackWindow;
+        }
     }
+    return nil;
 }
 
 __attribute__((constructor))
 static void WolFoxInit(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        installLocationHook();
-        UIWindow *w = UIApplication.sharedApplication.keyWindow;
+        UIWindow *w = GPSPlusActiveWindow();
         if (w) {
             GPSPlusOverlay *overlay = GPSPlusOverlay.shared;
             overlay.frame = UIScreen.mainScreen.bounds;
