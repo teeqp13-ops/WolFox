@@ -1,0 +1,38 @@
+name: Build DEB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          brew install ldid xz make
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Add iPhoneOS SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          curl -L -o /tmp/iPhoneOS14.5.sdk.tar.xz https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS14.5.sdk.tar.xz
+          tar -xf /tmp/iPhoneOS14.5.sdk.tar.xz -C $HOME/theos/sdks
+
+      - name: Build package
+        run: |
+          make clean package THEOS=$HOME/theos
+          mkdir -p output
+          cp packages/*.deb output/
+          shasum -a 256 output/*.deb > output/SHA256SUMS.txt
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WolFox-DEB
+          path: output/
