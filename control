@@ -1,0 +1,9 @@
+Package: com.wolfox.gpsplus
+Name: WolFox GPS Plus
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: WolFox GPS Plus tweak with floating map overlay
+Maintainer: Khalid <admin@p3nd.fun>
+Author: WolFox
+Section: Tweaks
+Depends: mobilesubstrate, firmware (>= 14.0)
